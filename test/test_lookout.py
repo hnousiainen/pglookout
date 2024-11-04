@@ -932,6 +932,90 @@ def test_standbys_failover_equal_replication_positions(pgl):
     assert pgl.execute_external_command.call_count == 1
 
 
+def test_standbys_failover_equal_replication_positions_with_priorities(pgl):
+    now = datetime.datetime.utcnow()
+    set_instance_cluster_state(
+        pgl,
+        instance="192.168.54.183",
+        pg_last_xlog_receive_location="0/70004D8",
+        pg_is_in_recovery=True,
+        connection=True,
+        replication_time_lag=400.435871,
+        fetch_time=now,
+        db_time=now,
+        conn_info="foobar",
+    )
+    set_instance_cluster_state(
+        pgl,
+        instance="192.168.57.180",
+        pg_last_xlog_receive_location=None,
+        pg_is_in_recovery=False,
+        connection=False,
+        replication_time_lag=0.0,
+        fetch_time=now - datetime.timedelta(seconds=3600),
+        db_time=now - datetime.timedelta(seconds=3600),
+        conn_info="foobar",
+    )
+    set_instance_cluster_state(
+        pgl,
+        instance="192.168.63.4",
+        pg_last_xlog_receive_location="0/70004D8",
+        pg_is_in_recovery=True,
+        connection=True,
+        replication_time_lag=401.104655,
+        fetch_time=now,
+        db_time=now,
+        conn_info="foobar",
+    )
+    set_instance_cluster_state(
+        pgl,
+        instance="192.168.62.4",
+        pg_last_xlog_receive_location="0/70004D8",
+        pg_is_in_recovery=True,
+        connection=True,
+        replication_time_lag=401.104655,
+        fetch_time=now,
+        db_time=now,
+        conn_info="foobar",
+    )
+    set_instance_cluster_state(
+        pgl,
+        instance="192.168.52.183",
+        pg_last_xlog_receive_location="0/70004D8",
+        pg_is_in_recovery=True,
+        connection=True,
+        replication_time_lag=401.104655,
+        fetch_time=now,
+        db_time=now,
+        conn_info="foobar",
+    )
+
+    pgl.current_master = "192.168.57.180"
+
+    pgl.config["failover_priorities"] = {
+        "192.168.54.183": 1000,
+        "192.168.52.183": 1000,
+        "192.168.63.4": 0,
+    }
+
+    # This is highest by instance, but lower in priority
+    pgl.own_db = "192.168.63.4"
+    pgl.check_cluster_state()
+    assert pgl.execute_external_command.call_count == 0
+    # This is second highest by instance, but no priority set - it's counted at 0
+    pgl.own_db = "192.168.62.4"
+    pgl.check_cluster_state()
+    assert pgl.execute_external_command.call_count == 0
+    # This node shares highest priority == 1000, but is lower by instance
+    pgl.own_db = "192.168.52.183"
+    pgl.check_cluster_state()
+    assert pgl.execute_external_command.call_count == 0
+    # Second lowest by instance, but with priority == 1000
+    pgl.own_db = "192.168.54.183"
+    pgl.check_cluster_state()
+    assert pgl.execute_external_command.call_count == 1
+
+
 def test_node_map_when_only_observer_sees_master(pgl):
     cluster_state = {
         "10.255.255.10": {
